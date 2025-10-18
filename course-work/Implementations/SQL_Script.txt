@@ -1,0 +1,427 @@
+------------------------------------------------------------
+-- 1. Database and Schemas
+------------------------------------------------------------
+CREATE DATABASE YouTubeDB;
+GO
+
+USE YouTubeDB;
+GO
+
+CREATE SCHEMA Users;
+GO
+CREATE SCHEMA Channels;
+GO
+CREATE SCHEMA Videos;
+GO
+CREATE SCHEMA Comments;
+GO
+CREATE SCHEMA Playlists;
+GO
+CREATE SCHEMA Tags;
+GO
+CREATE SCHEMA Categories;
+GO
+CREATE SCHEMA Subscriptions;
+GO
+
+------------------------------------------------------------
+-- 2. Users.Users
+------------------------------------------------------------
+CREATE TABLE [Users].[Users]
+(
+    UserId INT IDENTITY(1,1) NOT NULL,
+    Username NVARCHAR(100) NOT NULL,
+    Email NVARCHAR(150) NOT NULL UNIQUE,
+    PasswordHash NVARCHAR(255) NOT NULL,
+    JoinDate DATETIME2 NOT NULL CONSTRAINT DF_Users_JoinDate DEFAULT GETDATE(),
+    Country NVARCHAR(100),
+    AvatarUrl NVARCHAR(255),
+    [Role] NVARCHAR(50) DEFAULT 'viewer',
+    CONSTRAINT PK_Users_UserId PRIMARY KEY(UserId)
+);
+
+EXEC sys.sp_addextendedproperty
+    @name = N'TableDescription',
+    @value = N'Contains registered YouTube users.',
+    @level0type = N'SCHEMA', @level0name = N'Users',
+    @level1type = N'TABLE', @level1name = N'Users';
+GO
+
+INSERT INTO [Users].[Users] (Username, Email, PasswordHash, Country)
+VALUES ('JohnDoe', 'john@example.com', 'hash123', 'USA'),
+       ('JaneCreator', 'jane@example.com', 'hash456', 'UK');
+GO
+
+------------------------------------------------------------
+-- 3. Channels.Channels
+------------------------------------------------------------
+CREATE TABLE [Channels].[Channels]
+(
+    ChannelId INT IDENTITY(1,1) NOT NULL,
+    [Name] NVARCHAR(150) NOT NULL,
+    [Description] NVARCHAR(MAX),
+    CreationDate DATETIME2 NOT NULL DEFAULT GETDATE(),
+    TotalSubscribers INT DEFAULT 0,
+    OwnerId INT NOT NULL,
+    CONSTRAINT PK_Channels_ChannelId PRIMARY KEY(ChannelId),
+    CONSTRAINT FK_Channels_Users FOREIGN KEY(OwnerId)
+        REFERENCES [Users].[Users](UserId)
+);
+
+EXEC sys.sp_addextendedproperty
+    @name = N'TableDescription',
+    @value = N'Contains channels created by users.',
+    @level0type = N'SCHEMA', @level0name = N'Channels',
+    @level1type = N'TABLE', @level1name = N'Channels';
+GO
+
+------------------------------------------------------------
+-- 4. Categories.Categories
+------------------------------------------------------------
+CREATE TABLE [Categories].[Categories]
+(
+    CategoryId INT IDENTITY(1,1) NOT NULL,
+    [Name] NVARCHAR(100) NOT NULL,
+    [Description] NVARCHAR(255),
+    CONSTRAINT PK_Categories_CategoryId PRIMARY KEY(CategoryId)
+);
+
+INSERT INTO [Categories].[Categories] ([Name], [Description])
+VALUES ('Music','Songs, covers, instruments'),
+       ('Education','Tutorials, courses, learning'),
+       ('Gaming','Gameplays, reviews, streams');
+GO
+
+------------------------------------------------------------
+-- 5. Tags.Tags
+------------------------------------------------------------
+CREATE TABLE [Tags].[Tags]
+(
+    TagId INT IDENTITY(1,1) NOT NULL,
+    [Name] NVARCHAR(100) NOT NULL UNIQUE,
+    [Description] NVARCHAR(255),
+    CONSTRAINT PK_Tags_TagId PRIMARY KEY(TagId)
+);
+
+INSERT INTO [Tags].[Tags] ([Name])
+VALUES ('funny'), ('tutorial'), ('live'), ('asmr');
+GO
+
+------------------------------------------------------------
+-- 6. Videos.Videos
+------------------------------------------------------------
+CREATE TABLE [Videos].[Videos]
+(
+    VideoId INT IDENTITY(1,1) NOT NULL,
+    Title NVARCHAR(150) NOT NULL,
+    [Description] NVARCHAR(MAX),
+    UploadDate DATETIME2 NOT NULL DEFAULT GETDATE(),
+    Duration INT NOT NULL, -- seconds
+    Views BIGINT DEFAULT 0,
+    Likes INT DEFAULT 0,
+    Dislikes INT DEFAULT 0,
+    PrivacyStatus NVARCHAR(50) DEFAULT 'public',
+    CategoryId INT NOT NULL,
+    ChannelId INT NOT NULL,
+    CONSTRAINT PK_Videos_VideoId PRIMARY KEY(VideoId),
+    CONSTRAINT FK_Videos_Categories FOREIGN KEY(CategoryId)
+        REFERENCES [Categories].[Categories](CategoryId),
+    CONSTRAINT FK_Videos_Channels FOREIGN KEY(ChannelId)
+        REFERENCES [Channels].[Channels](ChannelId)
+);
+GO
+
+------------------------------------------------------------
+-- 7. Comments.Comments
+------------------------------------------------------------
+CREATE TABLE [Comments].[Comments]
+(
+    CommentId INT IDENTITY(1,1) NOT NULL,
+    [Text] NVARCHAR(500) NOT NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+    LikesCount INT DEFAULT 0,
+    UserId INT NOT NULL,
+    VideoId INT NOT NULL,
+    CONSTRAINT PK_Comments_CommentId PRIMARY KEY(CommentId),
+    CONSTRAINT FK_Comments_Users FOREIGN KEY(UserId)
+        REFERENCES [Users].[Users](UserId),
+    CONSTRAINT FK_Comments_Videos FOREIGN KEY(VideoId)
+        REFERENCES [Videos].[Videos](VideoId)
+);
+GO
+
+------------------------------------------------------------
+-- 8. Playlists.Playlists
+------------------------------------------------------------
+CREATE TABLE [Playlists].[Playlists]
+(
+    PlaylistId INT IDENTITY(1,1) NOT NULL,
+    [Title] NVARCHAR(150) NOT NULL,
+    [Description] NVARCHAR(MAX),
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+    Visibility NVARCHAR(20) DEFAULT 'public',
+    UserId INT NOT NULL,
+    CONSTRAINT PK_Playlists_PlaylistId PRIMARY KEY(PlaylistId),
+    CONSTRAINT FK_Playlists_Users FOREIGN KEY(UserId)
+        REFERENCES [Users].[Users](UserId)
+);
+GO
+
+------------------------------------------------------------
+-- 9. Subscriptions.Subscriptions
+------------------------------------------------------------
+CREATE TABLE [Subscriptions].[Subscriptions]
+(
+    UserId INT NOT NULL,
+    ChannelId INT NOT NULL,
+    CreatedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT PK_Subscriptions PRIMARY KEY(UserId, ChannelId),
+    CONSTRAINT FK_Subscriptions_Users FOREIGN KEY(UserId)
+        REFERENCES [Users].[Users](UserId),
+    CONSTRAINT FK_Subscriptions_Channels FOREIGN KEY(ChannelId)
+        REFERENCES [Channels].[Channels](ChannelId)
+);
+GO
+
+------------------------------------------------------------
+-- 10. Videos.VideoTags
+------------------------------------------------------------
+CREATE TABLE [Videos].[VideoTags]
+(
+    VideoId INT NOT NULL,
+    TagId INT NOT NULL,
+    CONSTRAINT PK_VideoTags PRIMARY KEY(VideoId, TagId),
+    CONSTRAINT FK_VideoTags_Videos FOREIGN KEY(VideoId)
+        REFERENCES [Videos].[Videos](VideoId),
+    CONSTRAINT FK_VideoTags_Tags FOREIGN KEY(TagId)
+        REFERENCES [Tags].[Tags](TagId)
+);
+GO
+
+------------------------------------------------------------
+-- 11. Playlists.PlaylistVideos
+------------------------------------------------------------
+CREATE TABLE [Playlists].[PlaylistVideos]
+(
+    PlaylistId INT NOT NULL,
+    VideoId INT NOT NULL,
+    [Position] INT,
+    AddedAt DATETIME2 NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT PK_PlaylistVideos PRIMARY KEY(PlaylistId, VideoId),
+    CONSTRAINT FK_PlaylistVideos_Playlists FOREIGN KEY(PlaylistId)
+        REFERENCES [Playlists].[Playlists](PlaylistId),
+    CONSTRAINT FK_PlaylistVideos_Videos FOREIGN KEY(VideoId)
+        REFERENCES [Videos].[Videos](VideoId)
+);
+GO
+
+------------------------------------------------------------
+-- 12. Sample Inserts
+------------------------------------------------------------
+INSERT INTO [Channels].[Channels] ([Name], [Description], OwnerId)
+VALUES ('John Tech Reviews', 'Channel for technology reviews', 1),
+       ('Jane Music World', 'Covers and guitar lessons', 2);
+
+INSERT INTO [Videos].[Videos] (Title, Description, Duration, CategoryId, ChannelId)
+VALUES ('How to Play Guitar', 'Beginner lesson', 600, 2, 2),
+       ('Best Budget Smartphone 2024', 'Full review', 900, 3, 1);
+
+INSERT INTO [Playlists].[Playlists] (Title, UserId)
+VALUES ('My Favorite Tutorials', 1);
+
+INSERT INTO [Playlists].[PlaylistVideos] (PlaylistId, VideoId, [Position])
+VALUES (1, 1, 1);
+GO
+
+------------------------------------------------------------
+-- STORED PROCEDURE 1: Get all videos for a given channel
+------------------------------------------------------------
+CREATE PROCEDURE [Videos].[USP_GetVideosByChannel]
+    @ChannelId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        v.VideoId,
+        v.Title,
+        v.Description,
+        v.UploadDate,
+        v.Views,
+        v.Likes,
+        c.Name AS ChannelName
+    FROM [Videos].[Videos] AS v
+        INNER JOIN [Channels].[Channels] AS c ON v.ChannelId = c.ChannelId
+    WHERE v.ChannelId = @ChannelId
+    ORDER BY v.UploadDate DESC;
+END
+GO
+
+
+------------------------------------------------------------
+-- STORED PROCEDURE 2: Get all channels a user is subscribed to
+------------------------------------------------------------
+CREATE PROCEDURE [Users].[USP_GetUserSubscriptions]
+    @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    SELECT 
+        s.ChannelId,
+        c.Name AS ChannelName,
+        c.Description,
+        s.CreatedAt
+    FROM [Subscriptions].[Subscriptions] AS s
+        INNER JOIN [Channels].[Channels] AS c ON s.ChannelId = c.ChannelId
+    WHERE s.UserId = @UserId
+    ORDER BY s.CreatedAt DESC;
+END
+GO
+
+------------------------------------------------------------
+-- FUNCTION 1: Get total likes across all videos for a channel
+------------------------------------------------------------
+CREATE FUNCTION [Videos].[UDF_GetTotalLikes](@ChannelId INT)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @TotalLikes INT;
+    SELECT @TotalLikes = SUM(Likes)
+    FROM [Videos].[Videos]
+    WHERE ChannelId = @ChannelId;
+
+    RETURN ISNULL(@TotalLikes, 0);
+END
+GO
+
+
+------------------------------------------------------------
+-- FUNCTION 2: Get total subscribers for a channel
+------------------------------------------------------------
+CREATE FUNCTION [Users].[UDF_GetSubscriberCount](@ChannelId INT)
+RETURNS INT
+AS
+BEGIN
+    DECLARE @Count INT;
+    SELECT @Count = COUNT(*)
+    FROM [Subscriptions].[Subscriptions]
+    WHERE ChannelId = @ChannelId;
+
+    RETURN ISNULL(@Count, 0);
+END
+GO
+
+------------------------------------------------------------
+-- TRIGGER 1: After inserting a new video, increment channel subscriber count
+------------------------------------------------------------
+CREATE TRIGGER [Videos].[TR_AfterVideoInsert]
+ON [Videos].[Videos]
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE c
+    SET c.TotalSubscribers = c.TotalSubscribers + 1
+    FROM [Channels].[Channels] AS c
+        INNER JOIN INSERTED i ON c.ChannelId = i.ChannelId;
+END
+GO
+
+
+------------------------------------------------------------
+-- TRIGGER 2: Prevent deletion of popular comments (LikesCount >= 1000)
+------------------------------------------------------------
+CREATE TRIGGER [Comments].[TR_BeforeDeletePopularComment]
+ON [Comments].[Comments]
+INSTEAD OF DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM DELETED
+        WHERE LikesCount >= 1000
+    )
+    BEGIN
+        RAISERROR('Cannot delete comment: it has 1000 or more likes.', 16, 1);
+        RETURN;
+    END
+
+    DELETE c
+    FROM [Comments].[Comments] AS c
+        INNER JOIN DELETED d ON c.CommentId = d.CommentId;
+END
+GO
+
+------------------------------------------------------------
+-- End of Script
+------------------------------------------------------------
+
+------------------------------------------------------------
+-- TEST: Stored Procedures
+------------------------------------------------------------
+
+-- Get all videos for a given channel
+PRINT '--- EXEC Videos.USP_GetVideosByChannel ---';
+EXEC [Videos].[USP_GetVideosByChannel] @ChannelId = 1;
+GO
+
+-- Get all channels a user is subscribed to
+PRINT '--- EXEC Users.USP_GetUserSubscriptions ---';
+EXEC [Users].[USP_GetUserSubscriptions] @UserId = 1;
+GO
+
+------------------------------------------------------------
+-- TEST: User Defined Functions
+------------------------------------------------------------
+
+-- Get total likes across all videos for a channel
+PRINT '--- SELECT Videos.UDF_GetTotalLikes ---';
+SELECT AS TotalLikesForChannel1;
+GO
+
+-- Get subscriber count for a channel
+PRINT '--- SELECT Users.UDF_GetSubscriberCount ---';
+SELECT AS SubscribersForChannel1;
+GO
+
+------------------------------------------------------------
+-- TEST: Triggers
+------------------------------------------------------------
+
+-- Test TR_AfterVideoInsert
+PRINT '--- INSERT Video (trigger should update TotalSubscribers in Channels) ---';
+INSERT INTO [Videos].[Videos]
+    (Title, Description, Duration, CategoryId, ChannelId)
+VALUES ('New Trigger Test Video', 'Demo video for trigger', 300, 1, 1);
+
+SELECT ChannelId, Name, TotalSubscribers
+FROM [Channels].[Channels]
+WHERE ChannelId = 1;
+GO
+
+-- Test TR_BeforeDeletePopularComment
+PRINT '--- Attempt to delete comment with >=1000 Likes (should fail) ---';
+
+-- Insert a high-like comment
+INSERT INTO [Comments].[Comments]
+    ([Text], LikesCount, UserId, VideoId)
+VALUES ('This video is legendary!', 1200, 1, 1);
+
+-- Try to delete it (trigger should block)
+DELETE FROM [Comments].[Comments]
+WHERE [Text] = 'This video is legendary!';
+GO
+
+-- Verify non-high-like comment deletes normally
+PRINT '--- Attempt to delete low-like comment (should succeed) ---';
+INSERT INTO [Comments].[Comments]
+    ([Text], LikesCount, UserId, VideoId)
+VALUES ('Just testing comment deletion', 10, 1, 1);
+
+DELETE FROM [Comments].[Comments]
+WHERE [Text] = 'Just testing comment deletion';
+GO
