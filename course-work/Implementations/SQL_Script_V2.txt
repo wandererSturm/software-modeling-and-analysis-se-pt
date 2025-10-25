@@ -1,0 +1,170 @@
+
+
+-- SQL Script for MSSQL to Create a Database
+
+-- 1. Declare a variable for the database name
+DECLARE @DatabaseName AS NVARCHAR(128) = N'YouTubeAnalyticsDW';
+
+-- 2. Check if the database already exists.
+-- If it does, drop it (USE WITH CAUTION in production environments!)
+IF EXISTS (SELECT name FROM sys.databases WHERE name = @DatabaseName)
+BEGIN
+    -- Set the database to SINGLE_USER mode to ensure no active connections prevent the drop
+    EXEC ('ALTER DATABASE ' + @DatabaseName + ' SET SINGLE_USER WITH ROLLBACK IMMEDIATE');
+    
+    -- Drop the database
+    EXEC ('DROP DATABASE ' + @DatabaseName);
+    
+    PRINT 'Existing Database ' + @DatabaseName + ' Dropped Successfully.';
+END
+
+-- 3. Create the new database
+CREATE DATABASE YouTubeAnalyticsDW
+ON PRIMARY
+(
+    NAME = N'YouTubeAnalyticsDW_Data',
+    FILENAME = N'C:\MSSQL\Data\YouTubeAnalyticsDW_Data.mdf', -- Customize this path
+    SIZE = 10240KB,
+    MAXSIZE = UNLIMITED,
+    FILEGROWTH = 1024KB
+)
+LOG ON
+(
+    NAME = N'YouTubeAnalyticsDW_Log',
+    FILENAME = N'C:\MSSQL\Data\YouTubeAnalyticsDW_Log.ldf',  -- Customize this path
+    SIZE = 5120KB,
+    MAXSIZE = 2048GB,
+    FILEGROWTH = 10%
+);
+
+-- 4. Switch the context to the newly created database
+USE YouTubeAnalyticsDW;
+
+PRINT 'Database YouTubeAnalyticsDW Created Successfully.';
+
+
+-- Switch context to the Data Warehouse database
+USE YouTubeAnalyticsDW;
+GO
+
+-- ----------------------------------------------------------------------
+-- 1. DIMENSION TABLES (The Context)
+-- ----------------------------------------------------------------------
+
+-- Dimension Table: DATE_DIM
+IF OBJECT_ID('DATE_DIM') IS NOT NULL DROP TABLE DATE_DIM;
+CREATE TABLE DATE_DIM (
+    Date_SK             INT             PRIMARY KEY,          -- Primary Key
+    Full_Date           DATE            NOT NULL,
+    Day_of_Week         TINYINT         NOT NULL,
+    Day_Name            NVARCHAR(10)    NOT NULL,
+    Day_of_Year         SMALLINT        NOT NULL,
+    Week_of_Year        TINYINT         NOT NULL,
+    Month_Num           TINYINT         NOT NULL,
+    Month_Name          NVARCHAR(10)    NOT NULL,
+    Quarter_Num         TINYINT         NOT NULL,
+    Calendar_Year       SMALLINT        NOT NULL
+);
+
+-- Dimension Table: TIME_DIM
+IF OBJECT_ID('TIME_DIM') IS NOT NULL DROP TABLE TIME_DIM;
+CREATE TABLE TIME_DIM (
+    Time_SK             INT             PRIMARY KEY,          -- Primary Key
+    Full_Time           TIME(0)         NOT NULL,
+    Hour_of_Day         TINYINT         NOT NULL,
+    Minute_of_Hour      TINYINT         NOT NULL,
+    Time_Slot           NVARCHAR(20)    NOT NULL  -- e.g., 'Morning', 'Afternoon'
+);
+
+-- Dimension Table: CHANNEL_DIM
+IF OBJECT_ID('CHANNEL_DIM') IS NOT NULL DROP TABLE CHANNEL_DIM;
+CREATE TABLE CHANNEL_DIM (
+    Channel_SK          INT             PRIMARY KEY IDENTITY(1,1), -- Surrogate Key
+    Channel_ID          VARCHAR(50)     NOT NULL UNIQUE,    -- Business Key
+    Channel_Name        NVARCHAR(255)   NOT NULL,
+    Creation_Date       DATE            NOT NULL,
+    Channel_Status      NVARCHAR(50)
+);
+
+-- Dimension Table: VIDEO_DIM
+IF OBJECT_ID('VIDEO_DIM') IS NOT NULL DROP TABLE VIDEO_DIM;
+CREATE TABLE VIDEO_DIM (
+    Video_SK            INT             PRIMARY KEY IDENTITY(1,1), -- Surrogate Key
+    Video_ID            VARCHAR(50)     NOT NULL UNIQUE,    -- Business Key
+    Video_Title         NVARCHAR(500)   NOT NULL,
+    Duration_Seconds    INT             NOT NULL,
+    Category            NVARCHAR(100)   NOT NULL
+);
+
+-- Dimension Table: USER_DIM (for viewer context/demographics)
+IF OBJECT_ID('USER_DIM') IS NOT NULL DROP TABLE USER_DIM;
+CREATE TABLE USER_DIM (
+    User_SK             INT             PRIMARY KEY IDENTITY(1,1), -- Surrogate Key
+    User_Geo_Location   NVARCHAR(100)   NOT NULL,
+    User_Device         NVARCHAR(50)    NOT NULL,
+    User_Demographic    NVARCHAR(50)    NOT NULL, -- e.g., '18-24 Male'
+    -- A composite key for the natural business key (optional but good practice)
+    UNIQUE (User_Geo_Location, User_Device, User_Demographic) 
+);
+
+
+-- ----------------------------------------------------------------------
+-- 2. FACT TABLES (The Metrics)
+-- ----------------------------------------------------------------------
+
+-- Fact Table: VIDEO_PERFORMANCE
+IF OBJECT_ID('VIDEO_PERFORMANCE') IS NOT NULL DROP TABLE VIDEO_PERFORMANCE;
+CREATE TABLE VIDEO_PERFORMANCE (
+    -- Composite Primary Key (Foreign Keys)
+    Video_SK            INT             NOT NULL,
+    Channel_SK          INT             NOT NULL,
+    Date_SK             INT             NOT NULL,
+    Time_SK             INT             NOT NULL,
+    
+    -- Measures (Metrics)
+    Views               BIGINT          NOT NULL,
+    Likes               INT             NOT NULL,
+    Dislikes            INT             NOT NULL,
+    Comments            INT             NOT NULL,
+    Watch_Time_Hrs      DECIMAL(18, 2)  NOT NULL,
+    
+    CONSTRAINT PK_VideoPerformance 
+        PRIMARY KEY CLUSTERED (Video_SK, Channel_SK, Date_SK, Time_SK),
+
+    -- Foreign Key Constraints
+    CONSTRAINT FK_VP_Video DIM FOREIGN KEY (Video_SK)
+        REFERENCES VIDEO_DIM (Video_SK),
+    
+    CONSTRAINT FK_VP_Channel DIM FOREIGN KEY (Channel_SK)
+        REFERENCES CHANNEL_DIM (Channel_SK),
+        
+    CONSTRAINT FK_VP_Date DIM FOREIGN KEY (Date_SK)
+        REFERENCES DATE_DIM (Date_SK),
+
+    CONSTRAINT FK_VP_Time DIM FOREIGN KEY (Time_SK)
+        REFERENCES TIME_DIM (Time_SK)
+);
+
+-- Fact Table: CHANNEL_METRICS
+IF OBJECT_ID('CHANNEL_METRICS') IS NOT NULL DROP TABLE CHANNEL_METRICS;
+CREATE TABLE CHANNEL_METRICS (
+    -- Composite Primary Key (Foreign Keys)
+    Channel_SK          INT             NOT NULL,
+    Date_SK             INT             NOT NULL,
+    
+    -- Measures (Metrics)
+    Subscribers_Gained  INT             NOT NULL,
+    Subscribers_Lost    INT             NOT NULL,
+    New_Videos_Uploaded INT             NOT NULL,
+    Total_Subscribers   BIGINT          NOT NULL, -- Snapshot fact
+    
+    CONSTRAINT PK_ChannelMetrics 
+        PRIMARY KEY CLUSTERED (Channel_SK, Date_SK),
+        
+    -- Foreign Key Constraints
+    CONSTRAINT FK_CM_Channel DIM FOREIGN KEY (Channel_SK)
+        REFERENCES CHANNEL_DIM (Channel_SK),
+        
+    CONSTRAINT FK_CM_Date DIM FOREIGN KEY (Date_SK)
+        REFERENCES DATE_DIM (Date_SK)
+);
